@@ -5,7 +5,7 @@
 - achieves 39% MFU on TPU v6e-1 when training GPT-2 (124M)
 - supports FSDP (Fully Sharded Data Parallel) training
 - implements the model in pure JAX with plain weight pytrees
-- uses [Hydra](https://github.com/facebookresearch/hydra) for experiment management
+- keeps the training config directly inside `train.py`
 - uses [Weights & Biases](https://wandb.ai/site) for experiment tracking
 
 # Training
@@ -16,12 +16,12 @@ Picodo requires a pretokenized dataset for training following the same format as
 
 The simplest way to use this codebase is by using the provided [Colab notebook](https://colab.research.google.com/github/martin-marek/picodo/blob/main/train_colab.ipynb), which automatically installs requirements, downloads the dataset, and starts training a model.
 
-To train a model using bash, simply set the [config name](configs) and any overrides:
+To train a model using bash, override values directly from the CLI:
 ```bash
-python train.py +model=gpt2s +dataset=fw_gpt2 opt.batch_size=8
+python train.py ds_path=~/datasets/fineweb_gpt2.bin model.D=768 model.L=12 model.T=1024 model.V=50257 opt.batch_size=8
 ```
 
-You can also run `train.py` directly, which uses the `base.yaml` config by default.
+You can also edit the inline defaults in `train.py` and then run it directly.
 
 <img src="https://github.com/martin-marek/picodo/blob/main/figures/loss.jpg" width="500">
 
@@ -31,4 +31,4 @@ This repository was originally a fork of [deepmind/NanoDO](https://github.com/go
 - NanoDO has [~1800 SLOC](https://codetabs.com/count-loc/count-loc-online.html) while Picodo only has ~360 SLOC
 - Picodo doens't rely on [grain](https://github.com/google/grain) for data loading so it can run locally on a Mac
 - Picodo implements the model in pure JAX instead of Flax/NNX
-- Picodo uses Hydra and Weights & Biases instead of Google's ConfigDict / Tensorboard
+- Picodo keeps config in a single Python file and uses Weights & Biases instead of Google's ConfigDict / Tensorboard

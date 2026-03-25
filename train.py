@@ -1,23 +1,51 @@
 import math
+import sys
 from functools import partial
 
-import hydra
 import jax
 import jax.numpy as jnp
 import optax
-import wandb
-from configs import resolver_setup
-from jax.sharding import AxisType
 from omegaconf import OmegaConf
-from omegaconf.dictconfig import DictConfig
 from tqdm.auto import tqdm
+import wandb
+from jax.sharding import AxisType
 
 import data
 import model as model_lib
 import utils
 
 
-def train_and_evaluate(c: DictConfig):
+DEFAULT_CFG = """
+seed: 0
+ds_path: null
+tokens_params_ratio: 20
+num_tokens_train: null
+log_every_tokens: 1000000
+num_tokens_valid: 20000000
+wandb_project: picodo
+wandb_mode: disabled
+run_name: null
+num_tp_devices: 1
+model:
+  D: null
+  L: null
+  H: 128
+  F: null
+  N: null
+  T: null
+  V: null
+  activ_dtype: bfloat16
+opt:
+  batch_size: 8
+  peak_lr: 0.002
+  warmup_frac: 0.05
+  b1: 0.9
+  b2: 0.999
+  weight_decay: 0.02
+"""
+
+def train_and_evaluate(c):
+    c = OmegaConf.merge(OmegaConf.create(DEFAULT_CFG), c)
 
     # get model and dataset rng seed
     key = jax.random.key(c.seed)
@@ -31,14 +59,14 @@ def train_and_evaluate(c: DictConfig):
 
     # model
     print("initializing model...")
-    c.model.V = int(math.ceil(c.model.V / jax.device_count()) * jax.device_count())  # round V up to enable sharding
+    c.model.V = math.ceil(c.model.V / jax.device_count()) * jax.device_count()
     weights = model_lib.create_sharded_model(c.model, key_model)
     forward = partial(model_lib.forward, c.model)
 
-    def loss_fn(weights, x):  # [B, T]
+    def loss_fn(weights, x):
         y = jnp.roll(x, -1, axis=1)
-        logits = forward(x, weights)  # [B, T, V]
-        losses = optax.softmax_cross_entropy_with_integer_labels(logits.astype(jnp.float32), y)  # [B, T]
+        logits = forward(x, weights)
+        losses = optax.softmax_cross_entropy_with_integer_labels(logits.astype(jnp.float32), y)
         return losses.at[:, -1].set(0).mean()
 
     def eval_step(weights, dataset):
@@ -67,8 +95,12 @@ def train_and_evaluate(c: DictConfig):
     num_opt_steps = len(ds_train)
     warmup_steps = int(c.opt.warmup_frac * num_opt_steps)
     tokens_per_opt_step = c.opt.batch_size * c.model.T
-    lr_schedule = optax.schedules.warmup_cosine_decay_schedule(0, c.opt.peak_lr, warmup_steps, num_opt_steps)
-    tx = optax.inject_hyperparams(optax.adamw)(lr_schedule, c.opt.b1, c.opt.b2, weight_decay=c.opt.weight_decay)
+    tx = optax.inject_hyperparams(optax.adamw)(
+        optax.schedules.warmup_cosine_decay_schedule(0, c.opt.peak_lr, warmup_steps, num_opt_steps),
+        c.opt.b1,
+        c.opt.b2,
+        weight_decay=c.opt.weight_decay,
+    )
     opt_state = tx.init(weights)
 
     @partial(jax.jit, donate_argnames=("weights", "opt_state"))
@@ -84,10 +116,7 @@ def train_and_evaluate(c: DictConfig):
 
     # training loop
     train_loss_sum, train_loss_num = jnp.zeros([]), 0
-
-    pbar = range(num_opt_steps)
-    if jax.process_index() == 0:
-        pbar = tqdm(pbar)
+    pbar = tqdm(range(num_opt_steps)) if jax.process_index() == 0 else range(num_opt_steps)
     for step in pbar:
 
         # training step
@@ -97,9 +126,10 @@ def train_and_evaluate(c: DictConfig):
         train_loss_sum += batch_loss
         train_loss_num += 1
         if train_loss_num * tokens_per_opt_step >= c.log_every_tokens:
-            metrics = {}
-            metrics["train_loss"] = train_loss_sum / train_loss_num
-            metrics["train_tokens_seen"] = (step + 1) * tokens_per_opt_step
+            metrics = {
+                "train_loss": train_loss_sum / train_loss_num,
+                "train_tokens_seen": (step + 1) * tokens_per_opt_step,
+            }
             if jax.process_index() == 0:
                 wandb.log(metrics, step)
                 pbar.set_postfix_str(f'loss={metrics["train_loss"]:.2f}')
@@ -112,10 +142,9 @@ def train_and_evaluate(c: DictConfig):
         wandb.finish()
 
 
-@hydra.main(version_base=None, config_path="configs", config_name="base")
-def main(c: DictConfig):
-    OmegaConf.resolve(c)
-    print(OmegaConf.to_yaml(c))
+def main():
+    c = OmegaConf.merge(OmegaConf.create(DEFAULT_CFG), OmegaConf.from_cli(sys.argv[1:]))
+    print(OmegaConf.to_yaml(c, resolve=True))
     train_and_evaluate(c)
 
 

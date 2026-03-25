@@ -31,7 +31,9 @@ def forward(c, x, weights):  # [B, T]
 
 
 def create_sharded_model(c, key):
-    D, F, H, L, N, V = map(int, (c.D, c.F, c.H, c.L, c.N, c.V))
+    D, H, L, V = c.D, c.H, c.L, c.V
+    F = c.F if c.F is not None else 4 * D
+    N = c.N if c.N is not None else D // H
 
     def init(shape, spec, scale):
         nonlocal key
