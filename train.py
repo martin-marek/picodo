@@ -1,4 +1,5 @@
 import math
+import operator as op
 import sys
 from functools import partial
 
@@ -16,16 +17,14 @@ import utils
 
 
 DEFAULT_CFG = """
-seed: 0
-ds_path: null
-tokens_params_ratio: 20
-num_tokens_train: null
-log_every_tokens: 1000000
-num_tokens_valid: 20000000
-wandb_project: picodo
-wandb_mode: disabled
-run_name: null
-num_tp_devices: 1
+run:
+  seed: 0
+  name: null
+data:
+  path: null
+  tokens_params_ratio: 20
+  num_tokens_train: null
+  num_tokens_valid: 20000000
 model:
   D: null
   L: null
@@ -35,6 +34,7 @@ model:
   T: null
   V: null
   activ_dtype: bfloat16
+  tp_size: 1
 opt:
   batch_size: 8
   peak_lr: 0.002
@@ -42,18 +42,22 @@ opt:
   b1: 0.9
   b2: 0.999
   weight_decay: 0.02
+log:
+  every_tokens: 1000000
+  project: picodo
+  mode: disabled
 """
 
 def train_and_evaluate(c):
     c = OmegaConf.merge(OmegaConf.create(DEFAULT_CFG), c)
 
     # get model and dataset rng seed
-    key = jax.random.key(c.seed)
+    key = jax.random.key(c.run.seed)
     key, key_model, key_dataset = jax.random.split(key, 3)
 
     # sharding
-    num_fsdp_devices = jax.device_count() // c.num_tp_devices
-    mesh = jax.make_mesh((num_fsdp_devices, c.num_tp_devices), ("data", "model"), axis_types=(AxisType.Auto, AxisType.Auto))
+    num_fsdp_devices = jax.device_count() // c.model.tp_size
+    mesh = jax.make_mesh((num_fsdp_devices, c.model.tp_size), ("data", "model"), axis_types=(AxisType.Auto, AxisType.Auto))
     jax.set_mesh(mesh)
     print("sharding mesh:", ", ".join(f"{k}={v}" for k, v in mesh.shape.items()))
 
@@ -85,11 +89,11 @@ def train_and_evaluate(c):
         print(f"{k}={v:_}")
 
     # dataset
-    if (c.num_tokens_train is None) and (c.tokens_params_ratio is not None):
-        c.num_tokens_train = c.tokens_params_ratio * (n_params["n_param_nonembed"] + n_params["n_param_embed"])
-    ds_train, ds_valid = data.load_ds(key_dataset, mesh, c.ds_path, c.model.T, c.opt.batch_size, c.num_tokens_valid, c.num_tokens_train)
-    if c.num_tokens_train is None:
-        c.num_tokens_train = ds_train.size
+    if (c.data.num_tokens_train is None) and (c.data.tokens_params_ratio is not None):
+        c.data.num_tokens_train = c.data.tokens_params_ratio * (n_params["n_param_nonembed"] + n_params["n_param_embed"])
+    ds_train, ds_valid = data.load_ds(key_dataset, mesh, c.data.path, c.model.T, c.opt.batch_size, c.data.num_tokens_valid, c.data.num_tokens_train)
+    if c.data.num_tokens_train is None:
+        c.data.num_tokens_train = ds_train.size
 
     # optimizer
     num_opt_steps = len(ds_train)
@@ -111,7 +115,7 @@ def train_and_evaluate(c):
 
     # start wandb
     if jax.process_index() == 0:
-        wandb.init(project=c.wandb_project, config=utils.flatten_dict(c), mode=c.wandb_mode, name=c.run_name)
+        wandb.init(project=c.log.project, config=utils.flatten_dict(c), mode=c.log.mode, name=c.run.name)
         wandb.summary.update(n_params)
 
     # training loop
@@ -125,7 +129,7 @@ def train_and_evaluate(c):
         # logging
         train_loss_sum += batch_loss
         train_loss_num += 1
-        if train_loss_num * tokens_per_opt_step >= c.log_every_tokens:
+        if train_loss_num * tokens_per_opt_step >= c.log.every_tokens:
             metrics = {
                 "train_loss": train_loss_sum / train_loss_num,
                 "train_tokens_seen": (step + 1) * tokens_per_opt_step,

@@ -6,6 +6,7 @@
 - supports FSDP (Fully Sharded Data Parallel) training
 - implements the model in pure JAX with plain weight pytrees
 - keeps the training config directly inside `train.py`
+- groups config into `run`, `data`, `model`, `opt`, and `log`
 - uses [Weights & Biases](https://wandb.ai/site) for experiment tracking
 
 # Training
@@ -18,7 +19,7 @@ The simplest way to use this codebase is by using the provided [Colab notebook](
 
 To train a model using bash, override values directly from the CLI:
 ```bash
-python train.py ds_path=~/datasets/fineweb_gpt2.bin model.D=768 model.L=12 model.T=1024 model.V=50257 opt.batch_size=8
+python train.py data.path=~/datasets/fineweb_gpt2.bin model.D=768 model.L=12 model.T=1024 model.V=50257 opt.batch_size=8
 ```
 
 You can also edit the inline defaults in `train.py` and then run it directly.
