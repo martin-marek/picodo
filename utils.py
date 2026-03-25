@@ -12,8 +12,3 @@ def flatten_dict(d, prefix=None, sep='.'):
         return out
     else:
         return {prefix: d}
-
-
-def get_num_model_params(weights):
-    n_params = jax.tree.reduce(lambda x, y: x + jnp.size(y), weights, 0)
-    return n_params
