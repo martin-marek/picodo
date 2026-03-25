@@ -56,6 +56,27 @@ def cross_entropy(logits, labels):
     return -jnp.sum(one_hot * log_softmax, axis=-1)
 
 
+def loss_fn(forward, weights, x):
+    y = jnp.roll(x, -1, axis=1)
+    logits = forward(x, weights)
+    losses = cross_entropy(logits, y)
+    return losses.at[:, -1].set(0).mean()
+
+
+def eval_step(forward, weights, dataset):
+    loss = jnp.zeros([], dtype=jnp.float32)
+    for batch in dataset:
+        loss += loss_fn(forward, weights, batch)
+    return loss / len(dataset)
+
+
+@partial(jax.jit, static_argnames=("forward", "tx"), donate_argnames=("weights", "opt_state"))
+def train_step(forward, tx, weights, opt_state, batch):
+    loss, grads = jax.value_and_grad(loss_fn, argnums=1)(forward, weights, batch)
+    updates, opt_state = tx.update(grads, opt_state, weights)
+    return optax.apply_updates(weights, updates), opt_state, loss
+
+
 def train_and_evaluate(c):
     c = OmegaConf.merge(OmegaConf.create(DEFAULT_CFG), c)
     if jax.device_count() % c.model.tp_size != 0:
@@ -76,18 +97,6 @@ def train_and_evaluate(c):
     c.model.V = math.ceil(c.model.V / jax.device_count()) * jax.device_count()
     weights = model_lib.create_sharded_model(c.model, key_model)
     forward = partial(model_lib.forward, c.model)
-
-    def loss_fn(weights, x):
-        y = jnp.roll(x, -1, axis=1)
-        logits = forward(x, weights)
-        losses = cross_entropy(logits, y)
-        return losses.at[:, -1].set(0).mean()
-
-    def eval_step(weights, dataset):
-        loss = jnp.zeros([], dtype=jnp.float32)
-        for batch in dataset:
-            loss += loss_fn(weights, batch)
-        return loss / len(dataset)
 
     # get num. model parameters
     n_params = {
@@ -117,12 +126,6 @@ def train_and_evaluate(c):
     )
     opt_state = tx.init(weights)
 
-    @partial(jax.jit, donate_argnames=("weights", "opt_state"))
-    def train_step(weights, opt_state, batch):
-        loss, grads = jax.value_and_grad(loss_fn)(weights, batch)
-        updates, opt_state = tx.update(grads, opt_state, weights)
-        return optax.apply_updates(weights, updates), opt_state, loss
-
     # start wandb
     if jax.process_index() == 0:
         wandb.init(project=c.log.project, config=utils.flatten_dict(c), mode=c.log.mode, name=c.run.name)
@@ -134,7 +137,7 @@ def train_and_evaluate(c):
     for step in pbar:
 
         # training step
-        weights, opt_state, batch_loss = train_step(weights, opt_state, ds_train[step])
+        weights, opt_state, batch_loss = train_step(forward, tx, weights, opt_state, ds_train[step])
 
         # logging
         train_loss_sum += batch_loss
@@ -150,7 +153,7 @@ def train_and_evaluate(c):
             train_loss_sum, train_loss_num = jnp.zeros([]), 0
 
     # eval at end of training
-    eval_loss = eval_step(weights, ds_valid)
+    eval_loss = eval_step(forward, weights, ds_valid)
     if jax.process_index() == 0:
         wandb.log({"eval_loss": eval_loss}, step)
         wandb.finish()
