@@ -1,9 +1,7 @@
 import os
 import jax
 import numpy as np
-import jax.numpy as jnp
 from jax.sharding import PartitionSpec as P
-from jax.sharding import Mesh, NamedSharding
 
 
 def load_ds(key, mesh, ds_path, seq_len, batch_size, n_tokens_valid, n_tokens_train=None):
@@ -13,7 +11,6 @@ def load_ds(key, mesh, ds_path, seq_len, batch_size, n_tokens_valid, n_tokens_tr
     ds_path = os.path.expanduser(ds_path)
     data = np.memmap(ds_path, dtype=np.uint16, mode='r')
     n_tokens_dataset = len(data)
-    n_seq_dataset = n_tokens_dataset // seq_len
 
     # if n_tokens_train is None, use full dataset
     if n_tokens_train is not None: assert n_tokens_train + n_tokens_valid <= n_tokens_dataset
@@ -29,7 +26,7 @@ def load_ds(key, mesh, ds_path, seq_len, batch_size, n_tokens_valid, n_tokens_tr
     data = np.memmap(ds_path, dtype=np.uint16, shape=[n_batch, batch_size, seq_len], mode='r')
     
     # load data onto jax devices, sharded across batch dimension
-    sharding = jax.sharding.NamedSharding(mesh, P(None, 'data', 'model'))
+    sharding = jax.sharding.NamedSharding(mesh, P(None, 'data', None))
     callback = lambda index: data[index]
     data = jax.make_array_from_callback(data.shape, sharding, callback)
 

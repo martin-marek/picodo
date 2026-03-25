@@ -1,6 +1,6 @@
 import jax
 import jax.numpy as jnp
-from jax.sharding import PartitionSpec as P
+from jax.sharding import PartitionSpec as P, reshard
 
 def rms_norm(x, eps=1e-6):
     return (x / jnp.sqrt(jnp.mean(x.astype(jnp.float32) ** 2, axis=-1, keepdims=True) + eps)).astype(x.dtype)
@@ -19,15 +19,22 @@ def apply_rope(x):
 def forward(cfg, x, weights):  # [B, T]
     dtype = jnp.dtype(cfg.activ_dtype)
     weights = jax.tree.map(lambda w: w.astype(dtype), weights)
-    h = weights["token_embed_in"][x]  # [B, T, D]
+    x = reshard(x, P("data", None))
+    h = weights["token_embed_in"].at[x, :].get(out_sharding=P("data", None, None)).astype(dtype)  # [B, T, D]
 
     for qkv, out, up, down in weights["blocks"]:
-        q, k, v = jnp.einsum("btd,sndh->sbtnh", rms_norm(h), qkv, preferred_element_type=dtype)
+        q, k, v = jnp.einsum("btd,sndh->sbtnh", rms_norm(h), qkv, preferred_element_type=dtype, out_sharding=P(None, "data", None, "model", None))
         q, k = apply_rope(rms_norm(q)), apply_rope(rms_norm(k))
-        h += jnp.einsum("btnh,nhd->btd", jax.nn.dot_product_attention(q, k, v, is_causal=True), out, preferred_element_type=dtype)
-        h += jnp.einsum("btf,fd->btd", jax.nn.gelu(jnp.einsum("btd,df->btf", rms_norm(h), up, preferred_element_type=dtype)), down, preferred_element_type=dtype)
+        h += jnp.einsum("btnh,nhd->btd", jax.nn.dot_product_attention(q, k, v, is_causal=True), out, preferred_element_type=dtype, out_sharding=P("data", None, None))
+        h += jnp.einsum(
+            "btf,fd->btd",
+            jax.nn.gelu(jnp.einsum("btd,df->btf", rms_norm(h), up, preferred_element_type=dtype, out_sharding=P("data", None, "model"))),
+            down,
+            preferred_element_type=dtype,
+            out_sharding=P("data", None, None),
+        )
 
-    return jnp.einsum("btd,vd->btv", rms_norm(h), weights["token_embed_out"], preferred_element_type=dtype)
+    return jnp.einsum("btd,vd->btv", rms_norm(h), weights["token_embed_out"], preferred_element_type=dtype, out_sharding=P("data", None, "model"))
 
 
 def create_sharded_model(cfg, key):

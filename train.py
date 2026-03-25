@@ -48,8 +48,18 @@ log:
   mode: disabled
 """
 
+
+def cross_entropy(logits, labels):
+    _, _, vocab_size = logits.shape
+    log_softmax = jax.nn.log_softmax(logits.astype(jnp.float32))
+    one_hot = jax.nn.one_hot(labels, vocab_size)
+    return -jnp.sum(one_hot * log_softmax, axis=-1)
+
+
 def train_and_evaluate(c):
     c = OmegaConf.merge(OmegaConf.create(DEFAULT_CFG), c)
+    if jax.device_count() % c.model.tp_size != 0:
+        raise ValueError(f"model.tp_size={c.model.tp_size} does not divide device_count={jax.device_count()}")
 
     # get model and dataset rng seed
     key = jax.random.key(c.run.seed)
@@ -57,7 +67,7 @@ def train_and_evaluate(c):
 
     # sharding
     num_fsdp_devices = jax.device_count() // c.model.tp_size
-    mesh = jax.make_mesh((num_fsdp_devices, c.model.tp_size), ("data", "model"), axis_types=(AxisType.Auto, AxisType.Auto))
+    mesh = jax.make_mesh((num_fsdp_devices, c.model.tp_size), ("data", "model"), axis_types=(AxisType.Explicit, AxisType.Explicit))
     jax.set_mesh(mesh)
     print("sharding mesh:", ", ".join(f"{k}={v}" for k, v in mesh.shape.items()))
 
@@ -70,7 +80,7 @@ def train_and_evaluate(c):
     def loss_fn(weights, x):
         y = jnp.roll(x, -1, axis=1)
         logits = forward(x, weights)
-        losses = optax.softmax_cross_entropy_with_integer_labels(logits.astype(jnp.float32), y)
+        losses = cross_entropy(logits, y)
         return losses.at[:, -1].set(0).mean()
 
     def eval_step(weights, dataset):
