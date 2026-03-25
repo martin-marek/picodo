@@ -25,14 +25,12 @@ def forward(cfg, x, weights):  # [B, T]
     for qkv, out, up, down in weights["blocks"]:
         q, k, v = jnp.einsum("btd,sndh->sbtnh", rms_norm(h), qkv, preferred_element_type=dtype, out_sharding=P(None, "data", None, "model", None))
         q, k = apply_rope(rms_norm(q)), apply_rope(rms_norm(k))
-        h += jnp.einsum("btnh,nhd->btd", jax.nn.dot_product_attention(q, k, v, is_causal=True), out, preferred_element_type=dtype, out_sharding=P("data", None, None))
-        h += jnp.einsum(
-            "btf,fd->btd",
-            jax.nn.gelu(jnp.einsum("btd,df->btf", rms_norm(h), up, preferred_element_type=dtype, out_sharding=P("data", None, "model"))),
-            down,
-            preferred_element_type=dtype,
-            out_sharding=P("data", None, None),
-        )
+        attn = jax.nn.dot_product_attention(q, k, v, is_causal=True)
+        o = jnp.einsum("btnh,nhd->btd", attn, out, preferred_element_type=dtype, out_sharding=P("data", None, None))
+        h += o
+        up = jax.nn.gelu(jnp.einsum("btd,df->btf", rms_norm(h), up, preferred_element_type=dtype, out_sharding=P("data", None, "model")))
+        down = jnp.einsum("btf,fd->btd", gate, down, preferred_element_type=dtype, out_sharding=P("data", None, None))
+        h += down
 
     return jnp.einsum("btd,vd->btv", rms_norm(h), weights["token_embed_out"], preferred_element_type=dtype, out_sharding=P("data", None, "model"))
 
