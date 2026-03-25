@@ -16,8 +16,8 @@ def apply_rope(x):
     return jnp.concatenate([x1 * cos - x2 * sin, x2 * cos + x1 * sin], axis=-1)
 
 
-def forward(c, x, weights):  # [B, T]
-    dtype = jnp.dtype(c.activ_dtype)
+def forward(cfg, x, weights):  # [B, T]
+    dtype = jnp.dtype(cfg.activ_dtype)
     weights = jax.tree.map(lambda w: w.astype(dtype), weights)
     h = weights["token_embed_in"][x]  # [B, T, D]
 
@@ -30,10 +30,10 @@ def forward(c, x, weights):  # [B, T]
     return jnp.einsum("btd,vd->btv", rms_norm(h), weights["token_embed_out"], preferred_element_type=dtype)
 
 
-def create_sharded_model(c, key):
-    D, H, L, V = c.D, c.H, c.L, c.V
-    F = c.F if c.F is not None else 4 * D
-    N = c.N if c.N is not None else D // H
+def create_sharded_model(cfg, key):
+    D, H, L, V = cfg.D, cfg.H, cfg.L, cfg.V
+    F = cfg.F if cfg.F is not None else 4 * D
+    N = cfg.N if cfg.N is not None else D // H
 
     def init(shape, spec, scale):
         nonlocal key
