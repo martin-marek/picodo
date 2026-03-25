@@ -19,7 +19,7 @@ The simplest way to use this codebase is by using the provided [Colab notebook](
 
 To train a model using bash, simply set the [config name](configs) and any overrides:
 ```bash
-python main.py +model=gpt2s +dataset=fw_gpt2 opt.batch_size=8
+python train.py +model=gpt2s +dataset=fw_gpt2 opt.batch_size=8
 ```
 
 You can also run `train.py` directly, which uses the `base.yaml` config by default.

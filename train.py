@@ -1,11 +1,14 @@
 import math
 from functools import partial
 
+import hydra
 import jax
 import jax.numpy as jnp
 import optax
 import wandb
+from configs import resolver_setup
 from jax.sharding import AxisType
+from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
 from tqdm.auto import tqdm
 
@@ -107,3 +110,14 @@ def train_and_evaluate(c: DictConfig):
     if jax.process_index() == 0:
         wandb.log({"eval_loss": eval_loss}, step)
         wandb.finish()
+
+
+@hydra.main(version_base=None, config_path="configs", config_name="base")
+def main(c: DictConfig):
+    OmegaConf.resolve(c)
+    print(OmegaConf.to_yaml(c))
+    train_and_evaluate(c)
+
+
+if __name__ == "__main__":
+    main()
