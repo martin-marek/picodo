@@ -24,7 +24,7 @@ data:
   path: null
   tokens_params_ratio: 20
   num_tokens_train: null
-  num_tokens_valid: 20000000
+  num_tokens_valid: 1_000_0000
 model:
   D: null
   L: null
@@ -45,7 +45,7 @@ opt:
   b2: 0.999
   weight_decay: 0.02
 log:
-  every_tokens: 1000000
+  every_tokens: 1_000_000
   project: picodo
   mode: disabled
 """
