@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+from jax import lax
 from jax.sharding import PartitionSpec as P, reshard
 
 def rms_norm(x, eps=1e-6):
@@ -18,21 +19,27 @@ def apply_rope(x):
 
 def forward(cfg, x, weights):  # [B, T]
     dtype = jnp.dtype(cfg.activ_dtype)
+    remat = getattr(cfg, "remat", False)
+    unroll = getattr(cfg, "unroll", False)
     weights = jax.tree.map(lambda w: w.astype(dtype), weights)
     x = reshard(x, P("data", None))
     h = weights["token_embed_in"].at[x, :].get(out_sharding=P("data", None, None)).astype(dtype)  # [B, T, D]
 
-    for qkv, out, up, down in weights["blocks"]:
+    def block_forward(h, block):
+        qkv, out, up, down = block["qkv"], block["out"], block["up"], block["down"]
         q, k, v = jnp.einsum("btd,sndh->sbtnh", rms_norm(h), qkv, preferred_element_type=dtype, out_sharding=P(None, "data", None, "model", None))
         q, k = apply_rope(rms_norm(q)), apply_rope(rms_norm(k))
         attn = jax.nn.dot_product_attention(q, k, v, is_causal=True)
         o = jnp.einsum("btnh,nhd->btd", attn, out, preferred_element_type=dtype, out_sharding=P("data", None, None))
         h += o
-        up = jax.nn.gelu(jnp.einsum("btd,df->btf", rms_norm(h), up, preferred_element_type=dtype, out_sharding=P("data", None, "model")))
-        down = jnp.einsum("btf,fd->btd", gate, down, preferred_element_type=dtype, out_sharding=P("data", None, None))
-        h += down
+        up_act = jax.nn.gelu(jnp.einsum("btd,df->btf", rms_norm(h), up, preferred_element_type=dtype, out_sharding=P("data", None, "model")))
+        down_proj = jnp.einsum("btf,fd->btd", up_act, down, preferred_element_type=dtype, out_sharding=P("data", None, None))
+        return h + down_proj, None
+    if remat: block_forward = jax.remat(block_forward)
+    h, _ = lax.scan(block_forward, h, weights["blocks"], unroll=unroll)
 
-    return jnp.einsum("btd,vd->btv", rms_norm(h), weights["token_embed_out"], preferred_element_type=dtype, out_sharding=P("data", None, "model"))
+    logits = jnp.einsum("btd,vd->btv", rms_norm(h), weights["token_embed_out"], preferred_element_type=dtype, out_sharding=P("data", None, "model"))
+    return logits
 
 
 def create_sharded_model(cfg, key):
@@ -48,13 +55,10 @@ def create_sharded_model(cfg, key):
     return {
         "token_embed_in": init((V, D), P("data", "model"), D ** -0.5),
         "token_embed_out": init((V, D), P("model", "data"), D ** -0.5),
-        "blocks": [
-            (
-                init((3, N, D, H), P(None, "model", "data", None), D ** -0.5),
-                init((N, H, D), P("model", None, "data"), D ** -0.5),
-                init((D, F), P("data", "model"), D ** -0.5),
-                init((F, D), P("model", "data"), F ** -0.5),
-            )
-            for _ in range(L)
-        ],
+        "blocks": {
+            "qkv": init((L, 3, N, D, H), P(None, None, "model", "data", None), D ** -0.5),
+            "out": init((L, N, H, D), P(None, "model", None, "data"), D ** -0.5),
+            "up": init((L, D, F), P(None, "data", "model"), D ** -0.5),
+            "down": init((L, F, D), P(None, "model", "data"), F ** -0.5),
+        },
     }

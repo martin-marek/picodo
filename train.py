@@ -34,6 +34,8 @@ model:
   T: null
   V: null
   activ_dtype: bfloat16
+  remat: false
+  unroll: false
   tp_size: 1
 opt:
   batch_size: 8
