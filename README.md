@@ -1,10 +1,8 @@
 # Picodo: fast pretraining in pure JAX
 
-- only ~360 SLOC
-- implements a transformer decoder in pure JAX (no Flax / NNX)
-- achieves 39% MFU on TPU v6e-1 when training GPT-2 (124M)
-- supports FSDP (Fully Sharded Data Parallel) training
-- can run on GPUs, TPUs, Google Colab, or even locally on a Mac
+- pure JAX (no Flax / NNX)
+- FSDP + TP sharding with explicit axes
+- only 65 LOC (model) + 230 LOC (everything else)
 
 # Training
 
