@@ -37,7 +37,7 @@ model:
   tp_size: 1
   activ_dtype: bfloat16
 opt:
-  batch_size: 8
+  batch_size: 32
   peak_lr: 0.002
   warmup_frac: 0.05
   b1: 0.9
