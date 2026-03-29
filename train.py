@@ -26,18 +26,16 @@ data:
   num_tokens_train: null
   num_tokens_valid: 1_000_0000
 model:
-  D: null
-  L: null
+  D: 768
+  L: 12
   H: 128
-  F: null
-  N: null
-  T: null
+  T: 256
   V: null
-  activ_dtype: bfloat16
   remat: false
   unroll: false
+  dp_shard: false
   tp_size: 1
-  dp_shard: true
+  activ_dtype: bfloat16
 opt:
   batch_size: 8
   peak_lr: 0.002
@@ -66,11 +64,12 @@ def loss_fn(forward, weights, x):
     return losses.at[:, -1].set(0).mean()
 
 
+@partial(jax.jit, static_argnames=("forward",))
 def eval_step(forward, weights, dataset):
-    loss = jnp.zeros([], dtype=jnp.float32)
-    for batch in dataset:
-        loss += loss_fn(forward, weights, batch)
-    return loss / len(dataset)
+    def body(loss_sum, batch):
+        return loss_sum + ntp_loss_fn(forward, weights, batch), None
+    loss_sum, _ = jax.lax.scan(body, 0, dataset)
+    return loss_sum / dataset.shape[0]
 
 
 @partial(jax.jit, static_argnames=("forward", "tx"), donate_argnames=("weights", "opt_state"))

@@ -43,8 +43,8 @@ def forward(cfg, x, weights):  # [B, T]
 
 def create_sharded_model(cfg, key):
     D, H, L, V = cfg.D, cfg.H, cfg.L, cfg.V
-    F = cfg.F if cfg.F is not None else 4 * D
-    N = cfg.N if cfg.N is not None else D // H
+    F = 4 * D
+    N = D // H
     data = "data" if cfg.dp_shard else None
 
     def init(shape, spec, scale):
