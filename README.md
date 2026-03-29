@@ -1,8 +1,9 @@
 # Picodo: fast pretraining in pure JAX
 
+- 32% MFU
 - pure JAX (no Flax / NNX)
-- FSDP + TP sharding with explicit axes
-- only 65 LOC (model) + 230 LOC (everything else)
+- 65 LOC (model) + 230 LOC (everything else)
+- FSDP / DP + TP sharding with explicit axes
 
 # Training
 
