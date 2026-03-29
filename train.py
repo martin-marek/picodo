@@ -37,6 +37,7 @@ model:
   remat: false
   unroll: false
   tp_size: 1
+  dp_shard: true
 opt:
   batch_size: 8
   peak_lr: 0.002

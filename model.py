@@ -46,6 +46,7 @@ def create_sharded_model(cfg, key):
     D, H, L, V = cfg.D, cfg.H, cfg.L, cfg.V
     F = cfg.F if cfg.F is not None else 4 * D
     N = cfg.N if cfg.N is not None else D // H
+    data = "data" if cfg.dp_shard else None
 
     def init(shape, spec, scale):
         nonlocal key
@@ -53,12 +54,12 @@ def create_sharded_model(cfg, key):
         return jax.device_put(scale * jax.random.normal(subkey, shape, jnp.float32), spec)
 
     return {
-        "token_embed_in": init((V, D), P("data", "model"), D ** -0.5),
-        "token_embed_out": init((V, D), P("model", "data"), D ** -0.5),
+        "token_embed_in": init((V, D), P("model", data), D ** -0.5),
+        "token_embed_out": init((V, D), P("model", data), D ** -0.5),
         "blocks": {
-            "qkv": init((L, 3, N, D, H), P(None, None, "model", "data", None), D ** -0.5),
-            "out": init((L, N, H, D), P(None, "model", None, "data"), D ** -0.5),
-            "up": init((L, D, F), P(None, "data", "model"), D ** -0.5),
-            "down": init((L, F, D), P(None, "model", "data"), F ** -0.5),
+            "qkv": init((L, 3, N, D, H), P(None, None, "model", data, None), D ** -0.5),
+            "out": init((L, N, H, D), P(None, "model", None, data), D ** -0.5),
+            "up": init((L, D, F), P(None, data, "model"), D ** -0.5),
+            "down": init((L, F, D), P(None, "model", data), F ** -0.5),
         },
     }
