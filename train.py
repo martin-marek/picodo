@@ -158,7 +158,7 @@ def train_and_evaluate(c):
             train_loss_sum, train_loss_num = jnp.zeros([]), 0
 
     # eval at end of training
-    ds_valid = jax.device_put(ds[idx_valid], P("data", None))
+    ds_valid = jax.device_put(ds[idx_valid], P(None, "data", None))
     eval_loss = eval_step(forward, weights, ds_valid)
     if jax.process_index() == 0:
         wandb.log({"eval_loss": eval_loss}, num_opt_steps - 1)
