@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 from jax import lax
-from jax.sharding import PartitionSpec as P, reshard
+from jax.sharding import PartitionSpec as P
 
 
 def rms_norm(x, eps=1e-6):
@@ -21,7 +21,6 @@ def apply_rope(x):
 def forward(cfg, x, weights):  # [B, T]
     dtype = jnp.dtype(cfg.activ_dtype)
     weights = jax.tree.map(lambda w: w.astype(dtype), weights)
-    x = reshard(x, P("data", None))
     h = weights["token_embed_in"].at[x, :].get(out_sharding=P("data", None, None)).astype(dtype)  # [B, T, D]
 
     def block_forward(h, block):
@@ -43,9 +42,8 @@ def forward(cfg, x, weights):  # [B, T]
 
 def create_sharded_model(cfg, key):
     D, H, L, V = cfg.D, cfg.H, cfg.L, cfg.V
-    F = 4 * D
-    N = D // H
-    data = "data" if cfg.dp_shard else None
+    F, N = 4 * D, D // H
+    data_shard = "data" if cfg.dp_shard else None
 
     def init(shape, spec, scale):
         nonlocal key
@@ -53,12 +51,12 @@ def create_sharded_model(cfg, key):
         return jax.device_put(scale * jax.random.normal(subkey, shape, jnp.float32), spec)
 
     return {
-        "token_embed_in": init((V, D), P("model", data), D ** -0.5),
-        "token_embed_out": init((V, D), P("model", data), D ** -0.5),
+        "token_embed_in": init((V, D), P("model", data_shard), D ** -0.5),
+        "token_embed_out": init((V, D), P("model", data_shard), D ** -0.5),
         "blocks": {
-            "qkv": init((L, 3, N, D, H), P(None, None, "model", data, None), D ** -0.5),
-            "out": init((L, N, H, D), P(None, "model", None, data), D ** -0.5),
-            "up": init((L, D, F), P(None, data, "model"), D ** -0.5),
-            "down": init((L, F, D), P(None, "model", data), F ** -0.5),
+            "qkv": init((L, 3, N, D, H), P(None, None, "model", data_shard, None), D ** -0.5),
+            "out": init((L, N, H, D), P(None, "model", None, data_shard), D ** -0.5),
+            "up": init((L, D, F), P(None, data_shard, "model"), D ** -0.5),
+            "down": init((L, F, D), P(None, "model", data_shard), F ** -0.5),
         },
     }
