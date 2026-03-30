@@ -67,7 +67,7 @@ def loss_fn(forward, weights, x):
 @partial(jax.jit, static_argnames=("forward",))
 def eval_step(forward, weights, dataset):
     def body(loss_sum, batch):
-        return loss_sum + ntp_loss_fn(forward, weights, batch), None
+        return loss_sum + loss_fn(forward, weights, batch), None
     loss_sum, _ = jax.lax.scan(body, 0, dataset)
     return loss_sum / dataset.shape[0]
 
