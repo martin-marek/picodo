@@ -19,6 +19,8 @@ To train a model using bash, override values directly from the CLI:
 python train.py data.path=~/datasets/fineweb_gpt2.bin model.V=50257 model.unroll=True
 ```
 
+Note: using `model.unroll=True` significantly increases throughput at the cost of longer copilation time.
+
 You can also use this codebase through the provided [Colab notebook](https://colab.research.google.com/github/martin-marek/picodo/blob/main/train_colab.ipynb), which automatically installs requirements, downloads the dataset, and starts training a model.
 
 <img src="figures/loss.jpg" width="500">
