@@ -1,6 +1,5 @@
 import jax
 import jax.numpy as jnp
-from jax import lax
 from jax.sharding import PartitionSpec as P
 
 
@@ -34,7 +33,7 @@ def forward(cfg, x, weights):  # [B, T]
         down_proj = jnp.einsum("btf,fd->btd", up_act, down, preferred_element_type=dtype, out_sharding=P("data", None, None))
         return h + down_proj, None
     if cfg.remat: block_forward = jax.remat(block_forward)
-    h, _ = lax.scan(block_forward, h, weights["blocks"], unroll=cfg.unroll)
+    h, _ = jax.lax.scan(block_forward, h, weights["blocks"], unroll=cfg.unroll)
 
     logits = jnp.einsum("btd,vd->btv", rms_norm(h), weights["token_embed_out"], preferred_element_type=dtype, out_sharding=P("data", None, "model"))
     return logits
