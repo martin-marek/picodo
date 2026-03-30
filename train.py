@@ -5,11 +5,12 @@ from functools import partial
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import optax
 from omegaconf import OmegaConf
 from tqdm.auto import tqdm
 import wandb
-from jax.sharding import AxisType
+from jax.sharding import AxisType, PartitionSpec as P
 
 import data
 import model as model_lib
@@ -112,12 +113,13 @@ def train_and_evaluate(c):
     # dataset
     if (c.data.num_tokens_train is None) and (c.data.tokens_params_ratio is not None):
         c.data.num_tokens_train = c.data.tokens_params_ratio * (n_params["n_param_nonembed"] + n_params["n_param_embed"])
-    ds_train, ds_valid = data.load_ds(key_dataset, mesh, c.data.path, c.model.T, c.opt.batch_size, c.data.num_tokens_valid, c.data.num_tokens_train)
+    ds_seed = np.asarray(jax.random.key_data(key_dataset))
+    ds, idx_train, idx_valid = data.load_ds(ds_seed, c.data.path, c.model.T, c.opt.batch_size, c.data.num_tokens_valid, c.data.num_tokens_train)
     if c.data.num_tokens_train is None:
-        c.data.num_tokens_train = ds_train.size
+        c.data.num_tokens_train = idx_train.size * c.model.T
 
     # optimizer
-    num_opt_steps = len(ds_train)
+    num_opt_steps = len(idx_train)
     warmup_steps = int(c.opt.warmup_frac * num_opt_steps)
     tokens_per_opt_step = c.opt.batch_size * c.model.T
     tx = optax.inject_hyperparams(optax.adamw)(
@@ -139,7 +141,8 @@ def train_and_evaluate(c):
     for step in pbar:
 
         # training step
-        weights, opt_state, batch_loss = train_step(forward, tx, weights, opt_state, ds_train[step])
+        batch = jax.device_put(ds[idx_train[step]], P("data", None))
+        weights, opt_state, batch_loss = train_step(forward, tx, weights, opt_state, batch)
 
         # logging
         train_loss_sum += batch_loss
@@ -155,9 +158,10 @@ def train_and_evaluate(c):
             train_loss_sum, train_loss_num = jnp.zeros([]), 0
 
     # eval at end of training
+    ds_valid = jax.device_put(ds[idx_valid], P("data", None))
     eval_loss = eval_step(forward, weights, ds_valid)
     if jax.process_index() == 0:
-        wandb.log({"eval_loss": eval_loss}, step)
+        wandb.log({"eval_loss": eval_loss}, num_opt_steps - 1)
         wandb.finish()
 
 

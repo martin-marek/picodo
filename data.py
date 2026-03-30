@@ -1,42 +1,38 @@
 import os
-import jax
+
 import numpy as np
-from jax.sharding import PartitionSpec as P
 
 
-def load_ds(key, mesh, ds_path, seq_len, batch_size, n_tokens_valid, n_tokens_train=None):
+def load_ds(seed, ds_path, seq_len, batch_size, n_tokens_valid, n_tokens_train=None):
 
     # get dataset size
     print('getting dataset size...')
     ds_path = os.path.expanduser(ds_path)
-    data = np.memmap(ds_path, dtype=np.uint16, mode='r')
-    n_tokens_dataset = len(data)
+    tokens = np.memmap(ds_path, dtype=np.uint16, mode='r')
+    n_tokens_dataset = len(tokens)
 
     # if n_tokens_train is None, use full dataset
     if n_tokens_train is not None: assert n_tokens_train + n_tokens_valid <= n_tokens_dataset
     if n_tokens_train is None: n_tokens_train = n_tokens_dataset - n_tokens_valid
 
-    # get num. of train. and valid. batches
-    n_batch_train = n_tokens_train // (batch_size * seq_len)
-    n_batch_valid = n_tokens_valid // (batch_size * seq_len)
-    n_batch = n_batch_train + n_batch_valid
+    # get num. of train. and valid. sequences / batches
+    n_seq_train = n_tokens_train // seq_len
+    n_seq_valid = n_tokens_valid // seq_len
+    n_batch_train = n_seq_train // batch_size
+    n_batch_valid = n_seq_valid // batch_size
+    n_seq = (n_batch_train + n_batch_valid) * batch_size
 
-    # memmap data
+    # memmap contiguous sequences
     print('reading data...')
-    data = np.memmap(ds_path, dtype=np.uint16, shape=[n_batch, batch_size, seq_len], mode='r')
-    
-    # load data onto jax devices, sharded across batch dimension
-    sharding = jax.sharding.NamedSharding(mesh, P(None, 'data', None))
-    callback = lambda index: data[index]
-    data = jax.make_array_from_callback(data.shape, sharding, callback)
+    data = np.memmap(ds_path, dtype=np.uint16, shape=[n_seq, seq_len], mode='r')
 
-    # shuffle batches
+    # shuffle sequences, then group them into batches
     print('shuffling data...')
-    data = jax.random.permutation(key, data, axis=0)
+    rng = np.random.default_rng(seed)
+    batch_indices = rng.permutation(n_seq).astype(np.int32).reshape(-1, batch_size)
 
     # split data
-    print('splitting data...')
-    data_train = data[:n_batch_train]
-    data_valid = data[n_batch_train:]
+    idx_train = batch_indices[:n_batch_train]
+    idx_valid = batch_indices[n_batch_train:]
     
-    return data_train, data_valid
+    return data, idx_train, idx_valid
