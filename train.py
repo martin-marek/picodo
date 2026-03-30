@@ -65,19 +65,19 @@ def loss_fn(forward, weights, x):
     return losses.at[:, -1].set(0).mean()
 
 
+@partial(jax.jit, static_argnames=("forward", "tx"), donate_argnames=("weights", "opt_state"))
+def train_step(forward, tx, weights, opt_state, batch):
+    loss, grads = jax.value_and_grad(loss_fn, argnums=1)(forward, weights, batch)
+    updates, opt_state = tx.update(grads, opt_state, weights)
+    return optax.apply_updates(weights, updates), opt_state, loss
+
+
 @partial(jax.jit, static_argnames=("forward",))
 def eval_step(forward, weights, dataset):
     def body(loss_sum, batch):
         return loss_sum + loss_fn(forward, weights, batch), None
     loss_sum, _ = jax.lax.scan(body, 0, dataset)
     return loss_sum / dataset.shape[0]
-
-
-@partial(jax.jit, static_argnames=("forward", "tx"), donate_argnames=("weights", "opt_state"))
-def train_step(forward, tx, weights, opt_state, batch):
-    loss, grads = jax.value_and_grad(loss_fn, argnums=1)(forward, weights, batch)
-    updates, opt_state = tx.update(grads, opt_state, weights)
-    return optax.apply_updates(weights, updates), opt_state, loss
 
 
 def train_and_evaluate(c):
