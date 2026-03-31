@@ -150,14 +150,14 @@ def train_and_evaluate(c):
                 "train_tokens_seen": (step + 1) * tokens_per_opt_step,
             }
             if jax.process_index() == 0:
-                wandb.log(metrics, step)
+                wandb.log(metrics, step, commit=True)
                 pbar.set_postfix_str(f'loss={metrics["train_loss"]:.2f}')
             train_loss_sum, train_loss_num = jnp.zeros([]), 0
 
     # eval at end of training
     eval_loss = eval_step(forward, weights, ds_valid)
     if jax.process_index() == 0:
-        wandb.log({"eval_loss": eval_loss}, step)
+        wandb.log({"eval_loss": eval_loss}, step, commit=True)
         wandb.finish()
 
 
