@@ -2,7 +2,7 @@
 
 - 32% MFU
 - pure JAX (no Flax / NNX)
-- 65 LOC (model) + 230 LOC (everything else)
+- 60 LOC (model) + 230 LOC (everything else)
 - FSDP / DP + TP sharding with explicit axes
 
 # Training
