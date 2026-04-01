@@ -122,12 +122,8 @@ def train_and_evaluate(c):
     num_opt_steps = len(idx_train)
     warmup_steps = int(c.opt.warmup_frac * num_opt_steps)
     tokens_per_opt_step = c.opt.batch_size * c.model.T
-    tx = optax.inject_hyperparams(optax.adamw)(
-        optax.schedules.warmup_cosine_decay_schedule(0, c.opt.peak_lr, warmup_steps, num_opt_steps),
-        c.opt.b1,
-        c.opt.b2,
-        weight_decay=c.opt.weight_decay,
-    )
+    lr_schedule = optax.schedules.warmup_cosine_decay_schedule(0, c.opt.peak_lr, warmup_steps, num_opt_steps)
+    tx = optax.adamw(lr_schedule, c.opt.b1, c.opt.b2, weight_decay=c.opt.weight_decay)
     opt_state = tx.init(weights)
 
     # start wandb
