@@ -23,14 +23,13 @@ def forward(cfg, x, weights):  # [B, T]
     h = weights["token_embed_in"].at[x, :].get(out_sharding=P("data", None, None)).astype(dtype)  # [B, T, D]
 
     def block_forward(h, block):
-        qkv, out, up, down = block["qkv"], block["out"], block["up"], block["down"]
-        q, k, v = jnp.einsum("btd,sndh->sbtnh", rms_norm(h), qkv, preferred_element_type=dtype, out_sharding=P(None, "data", None, "model", None))
+        q, k, v = jnp.einsum("btd,sndh->sbtnh", rms_norm(h), block["qkv"], preferred_element_type=dtype, out_sharding=P(None, "data", None, "model", None))
         q, k = apply_rope(rms_norm(q)), apply_rope(rms_norm(k))
         attn = jax.nn.dot_product_attention(q, k, v, is_causal=True)
-        o = jnp.einsum("btnh,nhd->btd", attn, out, preferred_element_type=dtype, out_sharding=P("data", None, None))
+        o = jnp.einsum("btnh,nhd->btd", attn, block["out"], preferred_element_type=dtype, out_sharding=P("data", None, None))
         h += o
-        up_act = jax.nn.gelu(jnp.einsum("btd,df->btf", rms_norm(h), up, preferred_element_type=dtype, out_sharding=P("data", None, "model")))
-        down_proj = jnp.einsum("btf,fd->btd", up_act, down, preferred_element_type=dtype, out_sharding=P("data", None, None))
+        up_act = jax.nn.gelu(jnp.einsum("btd,df->btf", rms_norm(h), block["up"], preferred_element_type=dtype, out_sharding=P("data", None, "model")))
+        down_proj = jnp.einsum("btf,fd->btd", up_act, block["down"], preferred_element_type=dtype, out_sharding=P("data", None, None))
         return h + down_proj, None
     if cfg.remat: block_forward = jax.remat(block_forward)
     h, _ = jax.lax.scan(block_forward, h, weights["blocks"], unroll=cfg.unroll)
